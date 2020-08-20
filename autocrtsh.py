@@ -9,22 +9,18 @@ def skipped(d):
 
 def remove_duplicates(filename):
     print(f"[+] Removing duplicats from {filename}")
-    tmp_list = []
     with open(filename, "r+") as f:
-        for line in f:
-            tmp_list.append(line)
+        # creating a list of lines of file
+        tmp_list = [line for line in f]
         removed_dup = set(tmp_list)
         f.seek(0)
         for line in removed_dup:
             f.write(line)
         f.truncate()
 
-def sub_domain_root(domains):
-    domain_list = []
-    for domain in domains:
-        d_list = domain.split(".")
-        sub_root = ".".join(d_list[-3:])
-        domain_list.append(sub_root)
+def sub_domain_root(domains, domain_level):
+    # Getting domain roots based on domain level. spliting domains with ".", slicing to get last items from list, then joining again with "."
+    domain_list = [".".join(domain.split(".")[domain_level:]) for domain in domains]
     return set(domain_list)
 
 def data_save(domains, domain_name, filename_all):
@@ -33,25 +29,19 @@ def data_save(domains, domain_name, filename_all):
         print(f"[+] Saving {len(domains)} domain names in file {filename} and adding to {filename_all}")
         with open (filename, 'w') as file:
             for domain in domains:
-                file.write(domain)
-                file.write("\n")
+                file.write(domain + "\n")
         with open(filename_all, 'a+') as file:
             for domain in domains:
-                file.write(domain)
-                file.write("\n")
+                file.write(domain + "\n")
     else:
         print(f"[+] Adding {len(domains)} domain names in file {filename_all}")
         with open(filename_all, 'a+') as file:
             for domain in domains:
-                file.write(domain)
-                file.write("\n")
+                file.write(domain + "\n")
 
 def domain_parse(domains):
-    d = []
-    for item in domains:
-        for domain in item:
-            if '<br/>' != str(domain):
-                d.append(str(domain))
+    # removing all occurance of <br/> html tag
+    d = [str(domain) for item in domains for domain in item if '<br/>' != str(domain)]
     return d
 
 def url_parse(html_page):
@@ -79,7 +69,6 @@ def url_parse(html_page):
 def crtsh(domain):
     url = "https://crt.sh/?Identity=%."
     query = url + domain
-    skipped_domain = []
     try:
         req = requests.get(query)
         return req.text
@@ -102,23 +91,19 @@ if __name__ == "__main__":
 
     print(f"[+] Fetching data from https://crt.sh for the domain {domain_name}")
     filename_all = "all_domains.txt"
-
-    try:
-        html_page = crtsh(domain_name)
-    except:
-        pass
-
+    html_page = crtsh(domain_name)
     print("[+] Parsing domain names")
     raw_domains = url_parse(html_page)
-    #print(domains)
     domains = domain_parse(raw_domains)
     # converting to python set datatype to remove duplicates
     domains = set(domains)
     data_save(domains, domain_name, filename_all)
-    print("[+] Collecting data recursively")
+    print("[+] Collecting data recursively ===================================================")
 
     if recursive:
-        sub_root = sub_domain_root(domains)
+        # Getting domain level to enumerate recursively
+        dom_level = -(len(domain_name.split(".")) + 1)
+        sub_root = sub_domain_root(domains, dom_level)
         for sub_domain_name in sub_root:
             print(f"[+] Getting subdomains for {sub_domain_name}")
             try:
@@ -127,6 +112,9 @@ if __name__ == "__main__":
                 sub_domains = domain_parse(sub_raw_domains)
                 sub_domains = set(sub_domains)
                 data_save(sub_domains, sub_domain_name, filename_all)
+            except KeyboardInterrupt:
+                print("[-] User interuption detected, Shutting down programe")
+                exit(0)
             except:
                 pass
          # removing duplicates from all domains files
