@@ -40,6 +40,7 @@ def sub_domain_root(domains, domain_level):
 
 def data_save(domains, domain_name, filename_all):
     filename = domain_name + ".txt"
+    domains = set(domains)
     if len(domains) > 2:
         print(colored(f"[+] Saving {len(domains)} domain names in file {filename} and adding to {filename_all}", "green"))
         with open (filename, 'w') as file:
