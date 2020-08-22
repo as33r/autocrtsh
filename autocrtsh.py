@@ -1,6 +1,21 @@
 import argparse
 import requests
 import bs4
+from termcolor import colored
+import os
+
+def extract_emails(domains):
+    email_filename = "email.txt"
+    domains = list(domains)
+    doms = []
+    with open(email_filename, "a+")as emails:
+        for domain in domains:
+            if "@" in domain:
+                emails.write(domain + "\n")
+            else:
+                doms.append(domain)
+    return set(doms)
+
 
 def skipped(d):
     with open("skipped.txt", "a+") as f:
@@ -8,7 +23,7 @@ def skipped(d):
         f.write("\n")
 
 def remove_duplicates(filename):
-    print(f"[+] Removing duplicats from {filename}")
+    print(colored(f"[+] Removing duplicats from {filename}", "green"))
     with open(filename, "r+") as f:
         # creating a list of lines of file
         tmp_list = [line for line in f]
@@ -26,7 +41,7 @@ def sub_domain_root(domains, domain_level):
 def data_save(domains, domain_name, filename_all):
     filename = domain_name + ".txt"
     if len(domains) > 2:
-        print(f"[+] Saving {len(domains)} domain names in file {filename} and adding to {filename_all}")
+        print(colored(f"[+] Saving {len(domains)} domain names in file {filename} and adding to {filename_all}", "green"))
         with open (filename, 'w') as file:
             for domain in domains:
                 file.write(domain + "\n")
@@ -34,7 +49,7 @@ def data_save(domains, domain_name, filename_all):
             for domain in domains:
                 file.write(domain + "\n")
     else:
-        print(f"[+] Adding {len(domains)} domain names in file {filename_all}")
+        print(colored(f"[+] Adding {len(domains)} domain names in file {filename_all}", "green"))
         with open(filename_all, 'a+') as file:
             for domain in domains:
                 file.write(domain + "\n")
@@ -73,7 +88,7 @@ def crtsh(domain):
         req = requests.get(query)
         return req.text
     except Exception as error:
-        print(f"[-][-] Error ocured {error} , skipping {domain} ")
+        print(colored(f"[-][-] Error ocured {error} , skipping {domain} ", "red"))
         skipped(domain)
 
 
@@ -86,36 +101,51 @@ if __name__ == "__main__":
     recursive = options.recursive
 
     if not domain_name:
-        print("Please provide a domain name to subdomain lookup")
+        print(colored("Please provide a domain name to subdomain lookup", "red"))
         exit(0)
 
-    print(f"[+] Fetching data from https://crt.sh for the domain {domain_name}")
+    print(colored(f"[+] Fetching data from https://crt.sh for the domain {domain_name}", "green"))
+    # creating a directory to save data
+    cwd = os.getcwd()
+    dir = domain_name.split(".")[-2]
+    path = os.path.join(cwd, dir)
+    if os.path.exists(path):
+        print(colored(f"[*] {dir} directory already exists", "yellow"))
+        os.chdir(path)
+    else:
+        print(colored(f"[*] Creating {dir} direcoty to save data", "yellow"))
+        os.mkdir(dir)
+        os.chdir(path)
+
     filename_all = "all_domains.txt"
     html_page = crtsh(domain_name)
-    print("[+] Parsing domain names")
+    print(colored("[+] Parsing domain names", "green"))
     raw_domains = url_parse(html_page)
     domains = domain_parse(raw_domains)
     # converting to python set datatype to remove duplicates
-    domains = set(domains)
+    doms = set(domains)
+    domains = extract_emails(doms)
     data_save(domains, domain_name, filename_all)
-    print("[+] Collecting data recursively ===================================================")
 
     if recursive:
+        print(colored("[*]  ======================   Collecting data recursively   =============================", "yellow"))
         # Getting domain level to enumerate recursively
         dom_level = -(len(domain_name.split(".")) + 1)
         sub_root = sub_domain_root(domains, dom_level)
         for sub_domain_name in sub_root:
-            print(f"[+] Getting subdomains for {sub_domain_name}")
+            print(colored(f"[+] Getting subdomains for {sub_domain_name}", "green"))
             try:
                 sub_html_page = crtsh(sub_domain_name)
                 sub_raw_domains = url_parse(sub_html_page)
                 sub_domains = domain_parse(sub_raw_domains)
-                sub_domains = set(sub_domains)
+                sub_doms = set(sub_domains)
+                sub_domins = extract_emails(sub_doms)
                 data_save(sub_domains, sub_domain_name, filename_all)
             except KeyboardInterrupt:
-                print("[-] User interuption detected, Shutting down programe")
+                print(colored("[-] User interuption detected, Shutting down programe", "red"))
                 exit(0)
             except:
                 pass
          # removing duplicates from all domains files
         remove_duplicates(filename_all)
+    print(colored("[*] Extracted emails are saved in emails.txt file", "yellow"))
