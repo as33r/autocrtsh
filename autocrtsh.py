@@ -1,8 +1,9 @@
 import argparse
 import requests
-import bs4
 from termcolor import colored
 import os
+import json
+from threading import *
 
 def extract_emails(domains):
     email_filename = "email.txt"
@@ -15,7 +16,6 @@ def extract_emails(domains):
             else:
                 doms.append(domain)
     return set(doms)
-
 
 def skipped(d):
     with open("skipped.txt", "a+") as f:
@@ -55,36 +55,14 @@ def data_save(domains, domain_name, filename_all):
             for domain in domains:
                 file.write(domain + "\n")
 
-def domain_parse(domains):
-    # removing all occurance of <br/> html tag
-    d = [str(domain) for item in domains for domain in item if '<br/>' != str(domain)]
-    return d
-
-def url_parse(html_page):
-    soup = bs4.BeautifulSoup(html_page, "html.parser")
-    # getting second table
-    try:
-        table = soup.find_all('table')[1]
-        # table inside table
-        table_row = table.find('table')
-        # list to capture all the domains
-        domain_data = []
-        # iterate through table rows
-        for tr in table_row:
-            if type(tr) is not bs4.element.NavigableString:
-                # getting all the data tags
-                td = tr.find_all('td')
-                try:
-                    domain_data.append(td[4].contents)
-                except IndexError:
-                    pass
-    except IndexError:
-        pass
-    return domain_data
+def domain_parse(json_response):
+    if json_response:
+        resp = json.loads(json_response)
+        return set([domain["name_value"] for domain in resp])
 
 def crtsh(domain):
     url = "https://crt.sh/?Identity=%."
-    query = url + domain
+    query = url + domain + "&output=json"
     try:
         req = requests.get(query)
         return req.text
@@ -92,14 +70,34 @@ def crtsh(domain):
         print(colored(f"[-][-] Error ocured {error} , skipping {domain} ", "red"))
         skipped(domain)
 
+def sub_domains(domain_name, domains, filename_all):
+    # Getting domain level to enumerate recursively
+    screen_lock = Semaphore(value=1)
+    dom_level = -(len(domain_name.split(".")) + 1)
+    sub_root = sub_domain_root(domains, dom_level)
+    for sub_domain_name in sub_root:
+        print(colored(f"[+] Getting subdomains for {sub_domain_name}", "green"))
+        try:
+            sub_json_response = crtsh(sub_domain_name)
+            sub_raw_domains = domain_parse(sub_json_response)
+            sub_domains = extract_emails(sub_raw_domains)
+            data_save(sub_domains, sub_domain_name, filename_all)
+        except KeyboardInterrupt:
+            print(colored("[-] User interuption detected, Shutting down programe", "red"))
+            exit(0)
+        except:
+            pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--domain", dest="domain", help="Give domain name to find subdomain from https://crt.sh")
     parser.add_argument("-r", "--recursive", dest="recursive", action="store_true", help="Look for subdomain recursively")
+    parser.add_argument("-o", "--output-dir", dest="output", default="autocrtsh",
+                        help="Output directory to save output")
     options = parser.parse_args()
     domain_name = options.domain
     recursive = options.recursive
+    output_dir = options.output
 
     if not domain_name:
         print(colored("Please provide a domain name to subdomain lookup", "red"))
@@ -109,44 +107,33 @@ if __name__ == "__main__":
     # creating a directory to save data
     cwd = os.getcwd()
     dir = domain_name.split(".")[-2]
-    path = os.path.join(cwd, dir)
+    path = os.path.join(cwd, dir, output_dir)
     if os.path.exists(path):
-        print(colored(f"[*] {dir} directory already exists", "yellow"))
+        print(colored(f"[*] {dir}  directory already exists", "yellow"))
         os.chdir(path)
     else:
         print(colored(f"[*] Creating {dir} direcoty to save data", "yellow"))
-        os.mkdir(dir)
+        try:
+            os.mkdir(dir)
+        except:
+            pass
+        os.mkdir(os.path.join(dir, output_dir))
         os.chdir(path)
 
     filename_all = "all_domains.txt"
-    html_page = crtsh(domain_name)
+    resp_json = crtsh(domain_name)
     print(colored("[+] Parsing domain names", "green"))
-    raw_domains = url_parse(html_page)
-    domains = domain_parse(raw_domains)
-    # converting to python set datatype to remove duplicates
-    doms = set(domains)
-    domains = extract_emails(doms)
+    raw_domains = domain_parse(resp_json)
+    domains = extract_emails(raw_domains)
     data_save(domains, domain_name, filename_all)
 
     if recursive:
-        print(colored("[*]  ======================   Collecting data recursively   =============================", "yellow"))
-        # Getting domain level to enumerate recursively
-        dom_level = -(len(domain_name.split(".")) + 1)
-        sub_root = sub_domain_root(domains, dom_level)
-        for sub_domain_name in sub_root:
-            print(colored(f"[+] Getting subdomains for {sub_domain_name}", "green"))
-            try:
-                sub_html_page = crtsh(sub_domain_name)
-                sub_raw_domains = url_parse(sub_html_page)
-                sub_domains = domain_parse(sub_raw_domains)
-                sub_doms = set(sub_domains)
-                sub_domins = extract_emails(sub_doms)
-                data_save(sub_domains, sub_domain_name, filename_all)
-            except KeyboardInterrupt:
-                print(colored("[-] User interuption detected, Shutting down programe", "red"))
-                exit(0)
-            except:
-                pass
+        print(
+            colored("[*]  ======================   Collecting data recursively   =============================",
+                    "yellow"))
+        sub_domains(domain_name, domains, filename_all)
+        threads = Thread(target=sub_domains, args=(domain_name, domains, filename_all))
+        threads.start()
          # removing duplicates from all domains files
         remove_duplicates(filename_all)
     print(colored("[*] Extracted emails are saved in emails.txt file", "yellow"))
